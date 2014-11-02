@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 )
 
 func main() {
@@ -17,17 +18,24 @@ func main() {
 		if err != nil {
 			continue
 		}
-		fmt.Println("client accept!")
-		messageBuf := make([]byte, 1024)
-		messageLen, err := conn.Read(messageBuf)
-		checkError(err)
 
-		message := string(messageBuf[:messageLen])
-		message = message + " too!"
-
-		conn.Write([]byte(message))
+		go handleClient(conn)
 	}
-	os.Exit(0)
+}
+
+func handleClient(conn net.Conn) {
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	fmt.Println("client accept!")
+	messageBuf := make([]byte, 1024)
+	messageLen, err := conn.Read(messageBuf)
+	checkError(err)
+
+	message := string(messageBuf[:messageLen])
+	message = message + " too!"
+
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	conn.Write([]byte(message))
 }
 
 func checkError(err error) {
