@@ -1,14 +1,26 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"time"
 )
 
+type kdpassdConf struct {
+	Port string
+}
+
 func main() {
-	service := ":51456"
+	configFile, err := os.Open("kdpassd.json")
+	checkError(err)
+	decoder := json.NewDecoder(configFile)
+	var config kdpassdConf
+	err = decoder.Decode(&config)
+	checkError(err)
+
+	service := ":" + config.Port
 	tcpAddr, err := net.ResolveTCPAddr("tcp", service)
 	checkError(err)
 	listner, err := net.ListenTCP("tcp", tcpAddr)
