@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-type kdpassdConf struct {
+type sampleConf struct {
 	Port          string
 	CrtPemUrl     string
 	RootPemUrl    string
@@ -108,10 +108,10 @@ func handleClient(conn *net.TCPConn, privateKey *rsa.PrivateKey, rootPem, crtPem
 }
 
 func main() {
-	configFile, err := os.Open("kdpassd.json")
+	configFile, err := os.Open("sample.json")
 	checkError(err)
 	decoder := json.NewDecoder(configFile)
-	var config kdpassdConf
+	var config sampleConf
 	err = decoder.Decode(&config)
 	checkError(err)
 	defer configFile.Close()
