@@ -6,21 +6,31 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	_ "github.com/lib/pq"
 	"io"
 	"io/ioutil"
 	"net"
 	"os"
+	"strconv"
 	"time"
 )
+
+type dbConf struct {
+	User   string
+	Pass   string
+	DBName string
+}
 
 type sampleConf struct {
 	Port          string
 	CrtPemUrl     string
 	RootPemUrl    string
 	PrivateKeyUrl string
+	DBConf        dbConf
 }
 
 func checkError(err error) {
@@ -33,14 +43,14 @@ func checkError(err error) {
 func encryptWrite(conn *net.TCPConn, cipherBlock cipher.Block, plainText []byte) error {
 
 	ciphertext := make([]byte, aes.BlockSize+len(plainText))
-	initializationVector := ciphertext[:aes.BlockSize]
-	_, err := io.ReadFull(rand.Reader, initializationVector)
+	iv := ciphertext[:aes.BlockSize]
+	_, err := io.ReadFull(rand.Reader, iv)
 
 	if err != nil {
 		return err
 	}
 
-	stream := cipher.NewCTR(cipherBlock, initializationVector)
+	stream := cipher.NewCTR(cipherBlock, iv)
 	stream.XORKeyStream(ciphertext[aes.BlockSize:], plainText)
 
 	_, err = conn.Write(ciphertext)
@@ -53,20 +63,20 @@ func decryptRead(conn *net.TCPConn, cipherBlock cipher.Block, bufSize int) ([]by
 		bufSize = 8192
 	}
 
-	cipherMessage := make([]byte, bufSize)
-	cipherLen, err := conn.Read(cipherMessage)
+	cipherMsg := make([]byte, bufSize)
+	cipherLen, err := conn.Read(cipherMsg)
 	if err != nil {
 		return []byte(""), err
 	}
 
-	message := make([]byte, cipherLen-aes.BlockSize)
-	stream := cipher.NewCTR(cipherBlock, cipherMessage[:aes.BlockSize])
-	stream.XORKeyStream(message, cipherMessage[aes.BlockSize:cipherLen])
+	msg := make([]byte, cipherLen-aes.BlockSize)
+	stream := cipher.NewCTR(cipherBlock, cipherMsg[:aes.BlockSize])
+	stream.XORKeyStream(msg, cipherMsg[aes.BlockSize:cipherLen])
 
-	return message, nil
+	return msg, nil
 }
 
-func handleClient(conn *net.TCPConn, privateKey *rsa.PrivateKey, rootPem, crtPem []byte) {
+func handleClient(conn *net.TCPConn, db *sql.DB, privateKey *rsa.PrivateKey, rootPem, crtPem []byte) {
 	defer conn.Close()
 	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -96,15 +106,40 @@ func handleClient(conn *net.TCPConn, privateKey *rsa.PrivateKey, rootPem, crtPem
 	cipherBlock, err := aes.NewCipher(sessionKey)
 	checkError(err)
 
-	message, err := decryptRead(conn, cipherBlock, 8192)
+	msg, err := decryptRead(conn, cipherBlock, 8192)
 	checkError(err)
 
-	fmt.Println("client message: " + string(message))
-	responseMessage := string(message) + " too!"
+	fmt.Println("client msg: " + string(msg))
 
-	err = encryptWrite(conn, cipherBlock, []byte(responseMessage))
+	rows, err := db.Query("SELECT COUNT(*) FROM word_counts WHERE word = $1;", string(msg))
 	checkError(err)
-	time.Sleep(1000 * time.Millisecond)
+
+	count := 0
+	for rows.Next() {
+		err = rows.Scan(&count)
+		checkError(err)
+	}
+
+	if count == 0 {
+		err = encryptWrite(conn, cipherBlock, []byte("'"+string(msg)+"'...わたし、気になります！"))
+		checkError(err)
+		_, err = db.Exec("INSERT INTO word_counts(word, num) VALUES($1, 1);", string(msg))
+		checkError(err)
+	} else {
+		rows, err = db.Query("SELECT num FROM word_counts WHERE word = $1;", string(msg))
+		checkError(err)
+
+		num := 0
+		for rows.Next() {
+			err = rows.Scan(&num)
+			checkError(err)
+		}
+
+		err = encryptWrite(conn, cipherBlock, []byte("'"+string(msg)+"'はもう"+strconv.Itoa(num+1)+"回も聞いたのでわたし、気になりません！"))
+		checkError(err)
+		_, err = db.Exec("UPDATE word_counts SET num = $1 WHERE word = $2;", num+1, string(msg))
+		checkError(err)
+	}
 }
 
 func main() {
@@ -115,6 +150,10 @@ func main() {
 	err = decoder.Decode(&config)
 	checkError(err)
 	defer configFile.Close()
+
+	db, err := sql.Open("postgres", "user="+config.DBConf.User+" dbname="+config.DBConf.DBName+" password="+config.DBConf.Pass+" sslmode=disable")
+	checkError(err)
+	defer db.Close()
 
 	rootPem, err := ioutil.ReadFile(config.RootPemUrl)
 	checkError(err)
@@ -143,6 +182,6 @@ func main() {
 			continue
 		}
 
-		go handleClient(conn, privateKey, rootPem, crtPem)
+		go handleClient(conn, db, privateKey, rootPem, crtPem)
 	}
 }
