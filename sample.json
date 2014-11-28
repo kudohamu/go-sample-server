@@ -1,6 +1,0 @@
-{
-  "Port": "51456",
-  "CrtPemUrl": "/usr/local/certs/server.crt",
-  "RootPemUrl": "/usr/local/certs/DemoCA/cacert.pem",
-  "PrivateKeyUrl": "/usr/local/certs/server.key"
-}
