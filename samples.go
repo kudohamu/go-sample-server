@@ -126,14 +126,9 @@ func handleClient(conn *net.TCPConn, db *sql.DB, privateKey *rsa.PrivateKey, roo
 		_, err = db.Exec("INSERT INTO word_counts(word, num) VALUES($1, 1);", string(msg))
 		checkError(err)
 	} else {
-		rows, err = db.Query("SELECT num FROM word_counts WHERE word = $1;", string(msg))
-		checkError(err)
-
 		num := 0
-		for rows.Next() {
-			err = rows.Scan(&num)
-			checkError(err)
-		}
+		err = db.QueryRow("SELECT num FROM word_counts WHERE word = $1;", string(msg)).Scan(&num)
+		checkError(err)
 
 		err = encryptWrite(conn, cipherBlock, []byte("'"+string(msg)+"'はもう"+strconv.Itoa(num+1)+"回も聞いたのでわたし、気になりません！"))
 		checkError(err)
