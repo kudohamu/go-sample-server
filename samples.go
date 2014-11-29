@@ -111,16 +111,11 @@ func handleClient(conn *net.TCPConn, db *sql.DB, privateKey *rsa.PrivateKey, roo
 
 	fmt.Println("client msg: " + string(msg))
 
-	rows, err := db.Query("SELECT COUNT(*) FROM word_counts WHERE word = $1;", string(msg))
+	cnt := 0
+	err = db.QueryRow("SELECT COUNT(*) AS cnt FROM word_counts WHERE word = $1;", string(msg)).Scan(&cnt)
 	checkError(err)
 
-	count := 0
-	for rows.Next() {
-		err = rows.Scan(&count)
-		checkError(err)
-	}
-
-	if count == 0 {
+	if cnt == 0 {
 		err = encryptWrite(conn, cipherBlock, []byte("'"+string(msg)+"'...わたし、気になります！"))
 		checkError(err)
 		_, err = db.Exec("INSERT INTO word_counts(word, num) VALUES($1, 1);", string(msg))
